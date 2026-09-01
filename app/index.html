@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
+    <link rel="preconnect" href="https://firestore.googleapis.com" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="{{DESCRIPTION}}" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!--
+      The doorstep can't render until Firebase Auth answers "is this
+      person signed in?", which costs a round trip to Google. Opening
+      those connections now overlaps the handshake with JS download —
+      worth real milliseconds on slow mobile networks (PRD R7).
+    -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://www.google.com" />
+    <!-- Social-share tags are generated from src/family.config.ts once
+         siteUrl is set there. See docs/social-share-image.md for making
+         an og:image of your own. -->
+    {{SOCIAL_META}}
+    <meta name="theme-color" content="#eef4fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101419" media="(prefers-color-scheme: dark)" />
+    <title>{{TITLE}}</title>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Static shell: paints instantly, replaced when the app mounts. -->
+      <style>
+        .shell { min-height: 100dvh; display: grid; place-items: center; text-align: center; background: #eef4fa; color: #18212b; font-family: Georgia, serif; }
+        @media (prefers-color-scheme: dark) { .shell { background: #101419; color: #dae7f0; } }
+      </style>
+      <div class="shell">
+        <div>
+          <p style="margin:0;font-size:13px;letter-spacing:.25em;text-transform:uppercase;color:#1e4f9c">{{TAGLINE}}</p>
+          <h1 style="margin:.2em 0 0;font-size:3.4rem;font-weight:600">{{FAMILY_EN}}</h1>
+          {{NATIVE_LINE}}
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+rules_version = '2';
+
+// The access model (PRD R5):
+// - Nobody reads family data without an approved membership.
+// - Only admins write canonical data (people, unions, meta).
+// - Members may create suggestions; admins review them.
+// - Multiple admins supported; admin is a role on the user doc.
+// These rules are the enforcement layer — UI gating alone is cosmetic.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function userExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function isMember() {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && userDoc(request.auth.uid).status == 'approved';
+    }
+
+    function isAdmin() {
+      return isMember() && userDoc(request.auth.uid).role == 'admin';
+    }
+
+    // ——— Membership ———
+    match /users/{uid} {
+      // Anyone signed in may request access — exactly once, as themselves,
+      // and only as a pending ordinary member.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.role == 'member'
+        && request.resource.data.email == request.auth.token.email;
+      // You may read your own membership; admins read everyone's.
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      // Only admins change memberships (approve, revoke, promote) — but a
+      // member may fill in their own display name, since accounts
+      // pre-provisioned by grant-admin start without one.
+      allow update: if isAdmin()
+        || (signedIn()
+            && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']));
+      allow delete: if isAdmin();
+    }
+
+    // ——— Canonical family data ———
+    match /people/{personId} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+    match /unions/{unionId} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+    match /meta/{docId} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // ——— Suggestions (PRD R9) ———
+    match /suggestions/{suggestionId} {
+      allow create: if isMember()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if isAdmin()
+        || (isMember() && resource.data.authorUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

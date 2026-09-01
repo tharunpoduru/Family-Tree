@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// Photos: members view, admins manage. Member uploads land only in a
+// quarantined suggestions area (PRD R9), capped in size and type.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function membership() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isMember() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && membership().status == 'approved';
+    }
+
+    function isAdmin() {
+      return isMember() && membership().role == 'admin';
+    }
+
+    // Canonical photos (portraits, weddings) and their resized variants.
+    match /photos/{allPaths=**} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // Quarantine for member-suggested photos: own folder only, images only, ≤15MB.
+    match /suggestions/{uid}/{fileName} {
+      allow write: if isMember()
+        && request.auth.uid == uid
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,115 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/inter';
+/* Native-script serifs. Both are declared; the browser downloads only the
+ * one your family's script actually uses (@font-face loads lazily). */
+@import '@fontsource/noto-serif-telugu/400.css';
+@import '@fontsource/noto-serif-telugu/600.css';
+@import '@fontsource/noto-serif-kannada/400.css';
+@import '@fontsource/noto-serif-kannada/600.css';
+
+/*
+ * Design tokens — "cool editorial heirloom".
+ * Palette drawn from peacock-silk blues with gold zari:
+ * nili (indigo blue), pasupu (turmeric gold), paper, ink.
+ * To retheme, change the values here (and their dark counterparts
+ * below) — the token names are used throughout the components.
+ */
+@theme {
+  --font-display: 'Fraunces Variable', 'Noto Serif Telugu', 'Noto Serif Kannada', Georgia, serif;
+  --font-body: 'Inter Variable', 'Noto Serif Telugu', 'Noto Serif Kannada', system-ui, sans-serif;
+  --font-native: 'Noto Serif Telugu', 'Noto Serif Kannada', 'Fraunces Variable', serif;
+
+  /* Light (paper) */
+  --color-paper: #eef4fa;
+  --color-paper-warm: #e2ecf4;
+  --color-card: #f9fdff;
+  --color-ink: #18212b;
+  --color-ink-soft: #42505c;
+  /* ~5:1 on paper and card — WCAG AA at 14px (PRD R6). */
+  --color-ink-faint: #506878;
+  --color-line: #cbdae6;
+
+  --color-nili: #1e4f9c;
+  --color-nili-deep: #163a75;
+  --color-pasupu: #c98a12;
+  --color-pasupu-soft: #f4e3bc;
+  --color-leaf: #4f6f52;
+
+  /* Silk gradient stops for portrait-less avatars */
+  --color-silk-1: #128ac9;
+  --color-silk-2: #1e4f9c;
+  --color-silk-3: #6f4a7c;
+  --color-silk-4: #2f6f66;
+  --color-silk-5: #2e56b3;
+  --color-silk-6: #2f6d8a;
+
+  --radius-card: 1.25rem;
+  --shadow-card: 0 1px 2px rgb(24 33 43 / 0.05), 0 8px 24px -8px rgb(24 33 43 / 0.12);
+  --shadow-float: 0 2px 8px rgb(24 33 43 / 0.08), 0 20px 48px -12px rgb(24 33 43 / 0.25);
+}
+
+/* Dark (night) — deep indigo night sky, never flat black. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+[data-theme='dark'] {
+  --color-paper: #101419;
+  --color-paper-warm: #141a21;
+  --color-card: #161d24;
+  --color-ink: #dae7f0;
+  --color-ink-soft: #a2b5c4;
+  --color-ink-faint: #768c9c;
+  --color-line: #242f3a;
+
+  --color-nili: #6e96e8;
+  --color-nili-deep: #8fb2f2;
+  --color-pasupu: #e3a63c;
+  --color-pasupu-soft: #21303d;
+  --color-leaf: #7da181;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+  --shadow-float: 0 2px 8px rgb(0 0 0 / 0.4), 0 20px 48px -12px rgb(0 0 0 / 0.7);
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+/* Native script always renders in its serif. */
+:lang(te),
+:lang(kn) {
+  font-family: var(--font-native);
+}
+
+/* Scroll without scrollbars (family feedback #2) — function, not chrome. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Visible keyboard focus everywhere (WCAG 2.4.7). */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-pasupu);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect reduced motion globally — Motion also reads this. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
