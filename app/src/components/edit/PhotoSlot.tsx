@@ -56,7 +56,12 @@ export function PhotoSlot({
             type="file"
             accept="image/*"
             className="sr-only"
-            onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              onPickFile(e.target.files?.[0] ?? null);
+              // Clear the input so choosing the same photo again (after a
+              // Remove) still fires a change event.
+              e.target.value = '';
+            }}
           />
         </label>
         {has && (

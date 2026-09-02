@@ -11,20 +11,36 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDocs,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { getBytes, ref, uploadBytes } from 'firebase/storage';
+import { getBytes, getMetadata, ref } from 'firebase/storage';
 import { db, storage } from './firebase-data';
-import { savePerson, saveUnion } from './edits';
+import { prune, savePerson, saveUnion } from './edits';
+import {
+  MAX_PHOTO_BYTES,
+  checkPhotoFile,
+  fileExtension,
+  guessContentType,
+  uploadImage,
+} from './upload';
 import { useAuth } from './auth';
 import type { Person, PersonId, PhotoRef, Union, UnionId } from '../types/family';
 
+/**
+ * `base` is the record as the editor saw it when they opened the sheet.
+ * Applying a save then touches only the fields they actually changed, so
+ * a sheet left open on one phone cannot silently overwrite a photo that
+ * another device saved in the meantime. Older suggestions without a base
+ * are applied whole, as before.
+ */
 export type Change =
-  | { kind: 'person.save'; person: Person }
-  | { kind: 'union.save'; union: Union }
+  | { kind: 'person.save'; person: Person; base?: Person }
+  | { kind: 'union.save'; union: Union; base?: Union }
   | { kind: 'union.addChild'; unionId: UnionId; person: Person }
   | { kind: 'family.start'; spouse: Person; union: Union }
   | { kind: 'family.link'; spouseId: PersonId; union: Union }
@@ -64,12 +80,20 @@ async function migratePhoto(
   ownerId: string,
 ): Promise<PhotoRef | undefined> {
   if (!photo?.path?.startsWith('suggestions/')) return photo;
-  const bytes = await getBytes(ref(storage, photo.path), 20 * 1024 * 1024);
-  const ext = (photo.path.split('.').pop() || 'jpg').toLowerCase();
+  const source = ref(storage, photo.path);
+  // Carry the content type across: the resize function only acts on
+  // image/* objects, and a bare byte copy would land as octet-stream.
+  const [bytes, meta] = await Promise.all([
+    getBytes(source, MAX_PHOTO_BYTES),
+    getMetadata(source),
+  ]);
+  const ext = fileExtension(photo.path) || 'jpg';
   const dest = `photos/${kind}/${ownerId}-${Date.now()}-${Math.floor(
     bytes.byteLength % 9973,
   )}.${ext}`;
-  await uploadBytes(ref(storage, dest), new Uint8Array(bytes));
+  await uploadImage(dest, new Uint8Array(bytes), {
+    contentType: meta.contentType || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+  });
   return { ...photo, path: dest };
 }
 
@@ -88,6 +112,41 @@ async function migrateAlbum(
 
 function stamp(by: Editor) {
   return { lastEditedBy: by.name, lastEditedUid: by.uid, lastEditedAt: new Date().toISOString() };
+}
+
+function isEmptyValue(v: unknown): boolean {
+  return (
+    v === undefined ||
+    v === null ||
+    v === '' ||
+    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0)
+  );
+}
+
+/**
+ * The fields of `next` that differ from `base`, ready for a merge write:
+ * changed fields carry their new value, cleared fields carry deleteField().
+ * Fields the editor never touched are absent, so concurrent edits to
+ * other fields survive. `keepEmpty` names fields whose empty object is
+ * itself meaningful (an undated `death`).
+ */
+function patchAgainst(
+  base: Record<string, unknown>,
+  next: Record<string, unknown>,
+  keepEmpty: Set<string> = new Set(),
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    const b = prune(base[key]);
+    const n = prune(next[key]);
+    if (JSON.stringify(b ?? null) === JSON.stringify(n ?? null)) continue;
+    if (isEmptyValue(n)) {
+      patch[key] = keepEmpty.has(key) && next[key] !== undefined ? {} : deleteField();
+    } else {
+      patch[key] = n;
+    }
+  }
+  return patch;
 }
 
 /** Remove a person from every union that references them. */
@@ -112,16 +171,37 @@ export async function applyChange(change: Change, by: Editor): Promise<void> {
   const audit = stamp(by);
   switch (change.kind) {
     case 'person.save': {
-      const person = { ...change.person, ...audit };
+      const person = { ...change.person };
       person.portrait = await migratePhoto(person.portrait, 'portraits', person.id);
       person.portraitThen = await migratePhoto(person.portraitThen, 'portraits', person.id);
-      await savePerson(person as Person);
+      if (!change.base) {
+        await savePerson({ ...person, ...audit } as Person);
+        return;
+      }
+      const patch = patchAgainst(
+        change.base as unknown as Record<string, unknown>,
+        person as unknown as Record<string, unknown>,
+        new Set(['death']),
+      );
+      // mergeFields (not merge:true) so a changed map — name, portrait,
+      // birth — is replaced whole; a deep merge would keep cleared keys.
+      const data = { ...patch, ...audit };
+      await setDoc(doc(db, 'people', person.id), data, { mergeFields: Object.keys(data) });
       return;
     }
     case 'union.save': {
-      const union = { ...change.union, ...audit };
+      const union = { ...change.union };
       union.photos = await migrateAlbum(union.photos, union.id);
-      await saveUnion(union as Union);
+      if (!change.base) {
+        await saveUnion({ ...union, ...audit } as Union);
+        return;
+      }
+      const patch = patchAgainst(
+        change.base as unknown as Record<string, unknown>,
+        union as unknown as Record<string, unknown>,
+      );
+      const data = { ...patch, ...audit };
+      await setDoc(doc(db, 'unions', union.id), data, { mergeFields: Object.keys(data) });
       return;
     }
     case 'union.addChild': {
@@ -208,14 +288,20 @@ export function useChangeSubmit() {
   );
 
   const uploadPhoto = useCallback(
-    async (kind: 'portraits' | 'weddings', ownerId: string, file: File): Promise<string> => {
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    async (
+      kind: 'portraits' | 'weddings',
+      ownerId: string,
+      file: File,
+      onProgress?: (fraction: number) => void,
+    ): Promise<string> => {
+      checkPhotoFile(file);
+      const ext = fileExtension(file.name) || 'jpg';
       const stamp = `${Date.now()}-${Math.floor(file.size % 9973)}`;
       const path =
         role === 'admin'
           ? `photos/${kind}/${ownerId}-${stamp}.${ext}`
           : `suggestions/${uid}/${kind}-${ownerId}-${stamp}.${ext}`;
-      await uploadBytes(ref(storage, path), file, { contentType: file.type });
+      await uploadImage(path, file, { contentType: guessContentType(file), onProgress });
       return path;
     },
     [role, uid],

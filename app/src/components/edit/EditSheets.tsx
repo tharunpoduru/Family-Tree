@@ -49,29 +49,42 @@ import {
 } from './Fields';
 import { GOTRAS, GOTRA_LABEL, NAKSHATRAS, NAKSHATRA_LABEL } from '../../lib/tradition';
 import { pack } from '../../family.config';
+import { reportClientError } from '../../lib/diagnostics';
+import { UploadError } from '../../lib/upload';
 
 function useSubmitFlow(onClose: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggested, setSuggested] = useState(false);
+  /** What the busy button says right now — e.g. upload progress. */
+  const [progress, setProgress] = useState<string | null>(null);
   async function run(fn: () => Promise<SubmitOutcome>) {
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
       const outcome = await fn();
       if (outcome === 'suggested') setSuggested(true);
       else onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save — try again.');
+      // No server ever hears about a stalled phone; record it ourselves.
+      reportClientError(e instanceof UploadError ? 'upload' : 'save', e);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
   function reset() {
     setSuggested(false);
     setError(null);
+    setProgress(null);
   }
-  return { busy, error, suggested, run, reset };
+  return { busy, error, suggested, progress, setProgress, run, reset };
+}
+
+function percent(fraction: number): string {
+  return `${Math.min(99, Math.floor(fraction * 100))}%`;
 }
 
 function SuggestedDone({ onClose }: { onClose: () => void }) {
@@ -251,15 +264,28 @@ export function PersonEditSheet({
       birth: normalizeDate(draft.birth),
       death: deceased ? (normalizeDate(draft.death) ?? {}) : undefined,
     };
+    const files = [nowFile, thenFile].filter((f): f is File => !!f).length;
+    let uploaded = 0;
+    const progress = (f: number) =>
+      flow.setProgress(
+        files > 1
+          ? `Uploading photo ${uploaded + 1} of ${files} · ${percent(f)}`
+          : `Uploading photo · ${percent(f)}`,
+      );
     if (nowFile) {
-      const path = await uploadPhoto('portraits', next.id, nowFile);
+      const path = await uploadPhoto('portraits', next.id, nowFile, progress);
       next.portrait = { ...next.portrait, path };
+      uploaded++;
     }
     if (thenFile) {
-      const path = await uploadPhoto('portraits', next.id, thenFile);
+      const path = await uploadPhoto('portraits', next.id, thenFile, progress);
       next.portraitThen = { ...next.portraitThen, path };
     }
-    const outcome = await submit({ kind: 'person.save', person: next }, next.name.en);
+    flow.setProgress('Saving…');
+    const outcome = await submit(
+      { kind: 'person.save', person: next, base: person ?? undefined },
+      next.name.en,
+    );
     // Suggestions folded into this save are now part of the record.
     if (outcome === 'applied' && usedIds.size) {
       await Promise.all([...usedIds].map((id) => setSuggestionStatus(id, 'applied')));
@@ -562,7 +588,7 @@ export function PersonEditSheet({
               busy={flow.busy}
               disabled={!draft.name.en.trim()}
               primaryLabel={role === 'admin' ? 'Save' : 'Send for approval'}
-              busyLabel="Saving…"
+              busyLabel={flow.progress ?? 'Saving…'}
               onPrimary={() => flow.run(save)}
               onCancel={onClose}
               destructive={
@@ -656,20 +682,30 @@ export function UnionEditSheet({
     if (!union) throw new Error('Nothing to save');
     // Upload any newly chosen photos, keep the album's order.
     const photos: PhotoRef[] = [];
+    const total = albumFiles.filter(Boolean).length;
+    let uploaded = 0;
     for (let i = 0; i < album.length; i++) {
       const file = albumFiles[i];
       const path = file
-        ? await uploadPhoto('weddings', union.id, file)
+        ? await uploadPhoto('weddings', union.id, file, (f) =>
+            flow.setProgress(
+              total > 1
+                ? `Uploading photo ${uploaded + 1} of ${total} · ${percent(f)}`
+                : `Uploading photo · ${percent(f)}`,
+            ),
+          )
         : album[i].path;
+      if (file) uploaded++;
       if (path) photos.push({ ...album[i], path });
     }
+    flow.setProgress('Saving…');
     const next: Union = {
       ...union,
       marriage: normalizeDate(marriage),
       children,
       photos: photos.length ? photos : undefined,
     };
-    const outcome = await submit({ kind: 'union.save', union: next }, label);
+    const outcome = await submit({ kind: 'union.save', union: next, base: union }, label);
     if (outcome === 'applied' && usedIds.size) {
       await Promise.all([...usedIds].map((id) => setSuggestionStatus(id, 'applied')));
     }
@@ -778,7 +814,7 @@ export function UnionEditSheet({
             <SheetActions
               busy={flow.busy}
               primaryLabel={role === 'admin' ? 'Save' : 'Send for approval'}
-              busyLabel="Saving…"
+              busyLabel={flow.progress ?? 'Saving…'}
               onPrimary={() => flow.run(save)}
               onCancel={onClose}
               destructive={

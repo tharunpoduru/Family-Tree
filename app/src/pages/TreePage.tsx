@@ -12,8 +12,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { useReadyData } from '../lib/data';
-import type { FamilyData, Person, PersonId, Union, UnionId } from '../types/family';
-import { homeUnionOf, parentUnionOf, personsOf } from '../lib/graph';
+import type { FamilyData, Person, Union, UnionId } from '../types/family';
+import { homeUnionOf, personsOf, spouseOf } from '../lib/graph';
+import {
+  buildTree,
+  countDescendants,
+  lineageParentOf,
+  reachableUnions,
+  type TreeNode,
+} from '../lib/tree';
 import { Avatar } from '../components/Avatar';
 import { AddChildSheet } from '../components/edit/EditSheets';
 import { yearOf } from '../lib/format';
@@ -23,58 +30,10 @@ const NODE_H = 112;
 const GAP_X = 16;
 const ROW_H = 190;
 
-type TreeNode =
-  | { kind: 'union'; union: Union; children: TreeNode[]; collapsedCount?: number }
-  | { kind: 'leaf'; person: Person };
-
 interface Placed {
   node: TreeNode;
   x: number;
   depth: number;
-}
-
-/**
- * A marriage within the family (both spouses descend from the root —
- * cousin marriages happen) would attach the same union under both
- * parents' branches. `seen` keeps one canonical expansion: the branch
- * reached first grows the sub-family; the other side shows that spouse
- * as a leaf, and their shared page is one tap away.
- */
-function buildTree(
-  data: FamilyData,
-  unionId: UnionId,
-  collapsed: Set<UnionId>,
-  seen: Set<UnionId> = new Set(),
-): TreeNode {
-  const union = data.unions[unionId];
-  seen.add(unionId);
-  if (collapsed.has(unionId)) {
-    return { kind: 'union', union, children: [], collapsedCount: countDescendants(data, unionId) };
-  }
-  const children: TreeNode[] = union.children.map((cid: PersonId) => {
-    const home = homeUnionOf(data, cid);
-    return home && !seen.has(home.id)
-      ? buildTree(data, home.id, collapsed, seen)
-      : { kind: 'leaf', person: data.people[cid] };
-  });
-  return { kind: 'union', union, children };
-}
-
-function countDescendants(
-  data: FamilyData,
-  unionId: UnionId,
-  seen: Set<UnionId> = new Set([unionId]),
-): number {
-  const union = data.unions[unionId];
-  let n = union.children.length;
-  for (const cid of union.children) {
-    const home = homeUnionOf(data, cid);
-    if (home && !seen.has(home.id)) {
-      seen.add(home.id);
-      n += countDescendants(data, home.id, seen);
-    }
-  }
-  return n;
 }
 
 function widthOf(node: TreeNode): number {
@@ -100,10 +59,7 @@ function chainTo(data: FamilyData, unionId: UnionId): Union[] {
   while (current && !guard.has(current.id)) {
     guard.add(current.id);
     chain.unshift(current);
-    const up: Union | undefined = (current.partners as PersonId[])
-      .map((p) => parentUnionOf(data, p))
-      .find(Boolean);
-    current = up;
+    current = lineageParentOf(data, current);
   }
   return chain;
 }
@@ -157,7 +113,7 @@ export function TreePage() {
   const crumbs = useMemo(() => chainTo(data, focus), [data, focus]);
 
   const { placed, totalUnits, maxDepth } = useMemo(() => {
-    const root = buildTree(data, focus, collapsed);
+    const root = buildTree(data, focus, collapsed, reachableUnions(data, focus));
     const out: Placed[] = [];
     place(root, 0, 0, out);
     return {
@@ -291,7 +247,7 @@ export function TreePage() {
       {desktop && (
       <div
         ref={scrollRef}
-        className="no-scrollbar overflow-auto overscroll-contain px-4"
+        className="no-scrollbar overflow-auto px-4"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {/*
@@ -363,13 +319,58 @@ export function TreePage() {
                 );
               }
               const person = p.node.person;
+              const marriedInto = p.node.marriedInto;
+              const spouse = marriedInto
+                ? data.people[spouseOf(marriedInto, person.id) ?? '']
+                : undefined;
+              const style = {
+                left: p.x * unit - NODE_W / 2,
+                top: p.depth * ROW_H,
+                width: NODE_W,
+                height: NODE_H,
+              };
+              if (marriedInto) {
+                // Married within the family: their couple grows under the
+                // other side. Point at it rather than look unmarried.
+                return (
+                  <motion.button
+                    key={person.id}
+                    type="button"
+                    onClick={(e) => handleUnionTap(marriedInto, e)}
+                    className="absolute flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-line bg-paper-warm px-2 py-2 text-center"
+                    style={style}
+                    title={
+                      spouse
+                        ? `Married to ${spouse.name.en} — their family grows on ${nameOn(data)(spouse)}’s side`
+                        : 'Their family grows elsewhere in the tree'
+                    }
+                    aria-label={
+                      spouse
+                        ? `${person.name.en}, married to ${spouse.name.en} — their family`
+                        : `${person.name.en} — their family`
+                    }
+                    {...entrance}
+                  >
+                    <span className="flex -space-x-2">
+                      <Avatar person={person} size="sm" />
+                      {spouse && <Avatar person={spouse} size="sm" className="opacity-60" />}
+                    </span>
+                    <span className="w-full text-[13px] font-medium leading-tight text-ink-soft">
+                      {nameOn(data)(person)}
+                    </span>
+                    <span className="text-[11px] leading-none text-nili">
+                      {spouse ? `m. ${nameOn(data)(spouse)} →` : 'married →'}
+                    </span>
+                  </motion.button>
+                );
+              }
               return (
                 <motion.button
                   key={person.id}
                   type="button"
                   onClick={() => navigate(`/p/${person.id}`)}
                   className="absolute flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-line bg-paper-warm px-2 py-2 text-center"
-                  style={{ left: p.x * unit - NODE_W / 2, top: p.depth * ROW_H, width: NODE_W, height: NODE_H }}
+                  style={style}
                   aria-label={`${person.name.en} — their page`}
                   {...entrance}
                 >

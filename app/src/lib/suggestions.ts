@@ -10,8 +10,8 @@ import {
   updateDoc,
   doc,
 } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
-import { db, storage } from './firebase-data';
+import { db } from './firebase-data';
+import { checkPhotoFile, guessContentType, uploadImage } from './upload';
 
 export interface Suggestion {
   authorUid: string;
@@ -35,8 +35,9 @@ export async function submitSuggestion(input: {
 }): Promise<void> {
   let photoPath: string | undefined;
   if (input.photo) {
+    checkPhotoFile(input.photo);
     photoPath = `suggestions/${input.authorUid}/${Date.now()}-${input.photo.name}`;
-    await uploadBytes(ref(storage, photoPath), input.photo);
+    await uploadImage(photoPath, input.photo, { contentType: guessContentType(input.photo) });
   }
   await addDoc(collection(db, 'suggestions'), {
     authorUid: input.authorUid,

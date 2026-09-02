@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "vitest run tests/kinship.test.ts",
+    "test": "vitest run tests/kinship.test.ts tests/tree.test.ts",
     "test:rules": "cd .. && firebase emulators:exec --only firestore,storage \"cd app && vitest run tests/rules.test.ts\"",
     "preview": "vite preview",
     "seed": "tsx scripts/seed-firestore.mts",

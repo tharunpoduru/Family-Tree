@@ -276,6 +276,35 @@ describe('photo storage', () => {
   });
 });
 
+describe('client error log', () => {
+  const entry = (uid: string) => ({ uid, stage: 'upload', code: 'stalled', message: 'x' });
+
+  it('lets a member record their own failure', async () => {
+    await assertSucceeds(addDoc(collection(asMember(), 'clientErrors'), entry(MEMBER)));
+  });
+
+  it('denies a member writing as someone else', async () => {
+    await assertFails(addDoc(collection(asMember(), 'clientErrors'), entry(ADMIN)));
+  });
+
+  it('denies a pending account and an outsider', async () => {
+    await assertFails(
+      addDoc(collection(env.authenticatedContext(PENDING).firestore(), 'clientErrors'), entry(PENDING)),
+    );
+    await assertFails(
+      addDoc(collection(env.authenticatedContext(OUTSIDER).firestore(), 'clientErrors'), entry(OUTSIDER)),
+    );
+  });
+
+  it('only admins may read the log', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'clientErrors', 'e1'), entry(MEMBER));
+    });
+    await assertFails(getDoc(doc(asMember(), 'clientErrors', 'e1')));
+    await assertSucceeds(getDoc(doc(asAdmin(), 'clientErrors', 'e1')));
+  });
+});
+
 it('has no unguarded collection', async () => {
   await assertFails(setDoc(doc(asMember(), 'anything', 'x'), { a: 1 }));
   await assertFails(getDoc(doc(asMember(), 'anything', 'x')));

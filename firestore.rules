@@ -77,6 +77,16 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // ——— Client error log ———
+    // A member's browser may record its own failures (stalled uploads,
+    // rejected saves) so admins can see what went wrong on a phone that
+    // no server log ever hears from. Write-only for members, as themselves.
+    match /clientErrors/{errorId} {
+      allow create: if isMember()
+        && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if isAdmin();
+    }
+
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;

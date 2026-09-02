@@ -12,3 +12,7 @@ import { app } from './firebase';
 
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+// The SDK's defaults are 10 minutes for uploads and 2 for everything else,
+// which on a bad connection just looks like a hang. Fail fast and say so.
+storage.maxUploadRetryTime = 60_000;
+storage.maxOperationRetryTime = 30_000;

@@ -5,8 +5,7 @@
  * the way to the database).
  */
 import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
-import { db, storage } from './firebase-data';
+import { db } from './firebase-data';
 import type { FamilyDate, Person, PersonId, Union, UnionId } from '../types/family';
 
 /** Remove undefined/empty values so documents stay sparse. */
@@ -58,8 +57,18 @@ export function newUnionId(aEn: string, bEn: string, taken: Set<string>): UnionI
   return id;
 }
 
+/**
+ * Person documents, pruned — except that an empty `death` survives, since
+ * its mere presence is what marks someone as passed (date unknown).
+ */
+export function personDocument(person: Person): Record<string, unknown> {
+  const data = prune(person) as unknown as Record<string, unknown>;
+  if (person.death && !data.death) data.death = {};
+  return data;
+}
+
 export async function savePerson(person: Person): Promise<void> {
-  await setDoc(doc(db, 'people', person.id), prune(person));
+  await setDoc(doc(db, 'people', person.id), personDocument(person));
 }
 
 export async function saveUnion(union: Union): Promise<void> {
@@ -71,18 +80,6 @@ export async function setUnionChildren(
   children: PersonId[],
 ): Promise<void> {
   await updateDoc(doc(db, 'unions', unionId), { children });
-}
-
-/** Upload a canonical photo; returns the stored path for the doc. */
-export async function uploadCanonicalPhoto(
-  kind: 'portraits' | 'weddings',
-  ownerId: string,
-  file: File,
-): Promise<string> {
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const path = `photos/${kind}/${ownerId}-${Date.now()}.${ext}`;
-  await uploadBytes(ref(storage, path), file, { contentType: file.type });
-  return path;
 }
 
 export async function clearPersonPortrait(personId: PersonId): Promise<void> {

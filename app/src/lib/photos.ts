@@ -24,9 +24,14 @@ export function resolvePhoto(path: string, size: PhotoSize): Promise<string> {
   const key = `${path}@${size}`;
   let p = cache.get(key);
   if (!p) {
-    p = getDownloadURL(ref(storage, variantPath(path, size)))
-      // Variant may not exist yet (resize runs async) — fall back to original.
-      .catch(() => getDownloadURL(ref(storage, path)));
+    p = getDownloadURL(ref(storage, variantPath(path, size))).catch(() => {
+      // Variant may not exist yet (resize runs async) or the lookup hit a
+      // transient failure. Serve the original this once, but forget the
+      // result so the next lookup tries the variant again — otherwise a
+      // full-size original (or a dead promise) sticks for the whole session.
+      cache.delete(key);
+      return getDownloadURL(ref(storage, path));
+    });
     cache.set(key, p);
   }
   return p;

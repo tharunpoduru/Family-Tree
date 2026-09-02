@@ -14,6 +14,9 @@ const { onObjectFinalized } = require('firebase-functions/v2/storage');
 const { initializeApp } = require('firebase-admin/app');
 const { getStorage } = require('firebase-admin/storage');
 const sharp = require('sharp');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs/promises');
 
 initializeApp();
 
@@ -24,8 +27,10 @@ const VARIANT_RE = /_\d+x\d+\.webp$/;
 exports.resizeImage = onObjectFinalized(
   {
     region: REGION,
-    memory: '1GiB',
-    timeoutSeconds: 120,
+    // Originals are welcome up to 100 MB (professional wedding photos), and
+    // a decoded 40 MB JPEG can need several hundred MB — hence the headroom.
+    memory: '2GiB',
+    timeoutSeconds: 300,
     maxInstances: 3,
   },
   async (event) => {
@@ -37,24 +42,31 @@ exports.resizeImage = onObjectFinalized(
     if (VARIANT_RE.test(filePath)) return; // already a variant
 
     const bucket = getStorage().bucket(event.data.bucket);
-    const [original] = await bucket.file(filePath).download();
+    // Stream the original to disk rather than holding it in memory next to
+    // its decoded pixels; sharp reads from the path.
+    const tmp = path.join(os.tmpdir(), `${Date.now()}-${path.basename(filePath)}`);
+    await bucket.file(filePath).download({ destination: tmp });
 
     const dot = filePath.lastIndexOf('.');
     const stem = dot === -1 ? filePath : filePath.slice(0, dot);
 
-    await Promise.all(
-      SIZES.map(async (size) => {
-        const resized = await sharp(original)
-          .rotate() // honor EXIF orientation
-          .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 78 })
-          .toBuffer();
-        await bucket.file(`${stem}_${size}x${size}.webp`).save(resized, {
-          contentType: 'image/webp',
-          metadata: { cacheControl: 'public, max-age=31536000, immutable' },
-        });
-      }),
-    );
-    console.log(`Resized ${filePath} → ${SIZES.map((s) => `${s}px`).join(', ')}`);
+    try {
+      await Promise.all(
+        SIZES.map(async (size) => {
+          const resized = await sharp(tmp)
+            .rotate() // honor EXIF orientation
+            .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 78 })
+            .toBuffer();
+          await bucket.file(`${stem}_${size}x${size}.webp`).save(resized, {
+            contentType: 'image/webp',
+            metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+          });
+        }),
+      );
+      console.log(`Resized ${filePath} → ${SIZES.map((s) => `${s}px`).join(', ')}`);
+    } finally {
+      await fs.unlink(tmp).catch(() => {});
+    }
   },
 );
