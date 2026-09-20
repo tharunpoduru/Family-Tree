@@ -92,7 +92,8 @@ By hand:
    nothing at runtime.)
 4. Add a few pack tests alongside the Kannada ones in
    [app/tests/kinship.test.ts](../app/tests/kinship.test.ts) and run
-   `npm test`.
+   `npm run test:unit` — the kinship engine needs no emulator, so this
+   needs no Java. (`npm test` runs everything, rules included.)
 
 For a non-Dravidian language, note the engine still computes
 elder/younger, cross/parallel, and side distinctions — for languages

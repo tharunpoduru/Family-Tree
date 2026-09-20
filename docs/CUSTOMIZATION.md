@@ -91,6 +91,8 @@ Credentials (`gcloud auth application-default login`):
 | `npx tsx scripts/reset-firestore.mts` | Replace all family data with the seed |
 | `npx tsx scripts/grant-admin.mts <email>` | Make someone an approved admin (creates the account if needed) |
 | `npx tsx scripts/revoke-user.mts <email>` | Remove a member's access entirely |
+| `npm test` | The whole suite, rules included (emulator; needs Java) |
+| `npm run test:unit` | Everything that needs no emulator — kinship, tree, saves, errors |
 | `npm run test:rules` | Security-rules unit tests (emulator; needs Java) |
 | `npx tsx scripts/verify-rules-live.mts` | Attack the deployed rules with throwaway accounts |
 | `npm run icons` | Regenerate PNG icons from favicon.svg |

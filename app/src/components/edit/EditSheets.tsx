@@ -50,7 +50,7 @@ import {
 import { GOTRAS, GOTRA_LABEL, NAKSHATRAS, NAKSHATRA_LABEL } from '../../lib/tradition';
 import { pack } from '../../family.config';
 import { reportClientError } from '../../lib/diagnostics';
-import { UploadError } from '../../lib/upload';
+import { UploadError, UserError, friendlyError } from '../../lib/errors';
 
 function useSubmitFlow(onClose: () => void) {
   const [busy, setBusy] = useState(false);
@@ -67,7 +67,7 @@ function useSubmitFlow(onClose: () => void) {
       if (outcome === 'suggested') setSuggested(true);
       else onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save — try again.');
+      setError(friendlyError(e, 'Could not save — try again.'));
       // No server ever hears about a stalled phone; record it ourselves.
       reportClientError(e instanceof UploadError ? 'upload' : 'save', e);
     } finally {
@@ -860,7 +860,7 @@ export function AddChildSheet({
   }, [union]);
 
   async function save(): Promise<SubmitOutcome> {
-    if (!union || !nameEn.trim()) throw new Error('A name is needed');
+    if (!union || !nameEn.trim()) throw new UserError('A name is needed');
     const id = newPersonId(nameEn, new Set(Object.keys(data.people)));
     const person = {
       id,
@@ -977,7 +977,7 @@ export function StartFamilySheet({
     if (!person) throw new Error('No person');
     const unionIds = new Set(Object.keys(data.unions));
     if (mode === 'existing') {
-      if (!pickedId) throw new Error('Choose who they married');
+      if (!pickedId) throw new UserError('Choose who they married');
       const spouse = data.people[pickedId];
       const union: Union = {
         id: newUnionId(person.name.en, spouse.name.en, unionIds),
@@ -987,7 +987,7 @@ export function StartFamilySheet({
       };
       return submit({ kind: 'family.link', spouseId: pickedId, union }, person.name.en);
     }
-    if (!spouseEn.trim()) throw new Error('A spouse name is needed');
+    if (!spouseEn.trim()) throw new UserError('A spouse name is needed');
     const spouseId = newPersonId(spouseEn, new Set(Object.keys(data.people)));
     const spouse = {
       id: spouseId,

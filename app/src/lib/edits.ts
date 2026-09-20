@@ -8,20 +8,33 @@ import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from './firebase-data';
 import type { FamilyDate, Person, PersonId, Union, UnionId } from '../types/family';
 
+/**
+ * Plain data, as opposed to a class instance. Rebuilding one of those as
+ * a bare object destroys it: a `serverTimestamp()` sentinel flattens into
+ * `{_methodName: 'serverTimestamp'}` and Firestore stores that map
+ * verbatim instead of stamping the time. Timestamp, Date, GeoPoint and
+ * DocumentReference would go the same way.
+ */
+function isPlainData(v: unknown): v is Record<string, unknown> {
+  if (!v || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
 /** Remove undefined/empty values so documents stay sparse. */
 export function prune<T>(value: T): T {
   if (Array.isArray(value)) return value.map(prune) as T;
-  if (value && typeof value === 'object') {
+  if (isPlainData(value)) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value)) {
       if (v === undefined || v === '' || v === null) continue;
-      const pv = typeof v === 'object' ? prune(v) : v;
-      if (pv && typeof pv === 'object' && !Array.isArray(pv) && Object.keys(pv).length === 0)
-        continue;
+      const pv = isPlainData(v) || Array.isArray(v) ? prune(v) : v;
+      if (isPlainData(pv) && Object.keys(pv).length === 0) continue;
       out[k] = pv;
     }
     return out as T;
   }
+  // Anything else — a sentinel, a Timestamp, a Date — passes through whole.
   return value;
 }
 

@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "vitest run tests/kinship.test.ts tests/tree.test.ts",
-    "test:rules": "cd .. && firebase emulators:exec --only firestore,storage \"cd app && vitest run tests/rules.test.ts\"",
+    "test": "cd .. && firebase emulators:exec --only firestore,storage --project family-tree-rules-test \"cd app && vitest run\"",
+    "test:unit": "vitest run --exclude '**/rules.test.ts'",
+    "test:rules": "cd .. && firebase emulators:exec --only firestore,storage --project family-tree-rules-test \"cd app && vitest run tests/rules.test.ts\"",
     "preview": "vite preview",
     "seed": "tsx scripts/seed-firestore.mts",
     "icons": "tsx scripts/make-icons.mts"

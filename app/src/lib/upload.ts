@@ -13,31 +13,14 @@
  */
 import { ref, uploadBytesResumable, type UploadMetadata } from 'firebase/storage';
 import { storage } from './firebase-data';
+import { UploadError, type UploadDetails } from './errors';
+
+export { UploadError, type UploadDetails } from './errors';
 
 /** Generous on purpose — see the module note. Mirrored in storage.rules. */
 export const MAX_PHOTO_BYTES = 100 * 1024 * 1024;
 /** No bytes moved for this long means the connection is stuck. */
 const STALL_MS = 30_000;
-
-export interface UploadDetails {
-  path: string;
-  size: number;
-  type: string;
-  name?: string;
-  /** Bytes that had made it before the upload gave up. */
-  transferred?: number;
-}
-
-export class UploadError extends Error {
-  code: string;
-  details: UploadDetails;
-  constructor(code: string, message: string, details: UploadDetails) {
-    super(message);
-    this.name = 'UploadError';
-    this.code = code;
-    this.details = details;
-  }
-}
 
 const EXT_TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -154,7 +137,7 @@ export function uploadImage(
           return;
         }
         const code = (err as { code?: string }).code ?? 'unknown';
-        reject(new UploadError(code, friendlyMessage(code, err.message), info));
+        reject(new UploadError(code, friendlyMessage(code), info));
       },
       () => {
         done();
@@ -164,7 +147,7 @@ export function uploadImage(
   });
 }
 
-function friendlyMessage(code: string, fallback: string): string {
+function friendlyMessage(code: string): string {
   switch (code) {
     case 'storage/unauthorized':
       return 'You are not allowed to upload here. If you were recently approved, sign out and back in.';
@@ -175,6 +158,8 @@ function friendlyMessage(code: string, fallback: string): string {
     case 'storage/quota-exceeded':
       return 'The family storage is full. Please tell an admin.';
     default:
-      return `${fallback} (${code})`;
+      // Never the SDK's own text: it names bucket paths and means nothing
+      // to the reader. The raw message still reaches `clientErrors`.
+      return 'The photo could not be uploaded. Check your connection and try again.';
   }
 }

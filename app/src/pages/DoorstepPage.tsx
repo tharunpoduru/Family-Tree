@@ -6,6 +6,8 @@
 import { useState } from 'react';
 import { useAuth } from '../lib/auth';
 import { familyConfig, pack } from '../family.config';
+import { friendlyError } from '../lib/errors';
+import { reportClientError } from '../lib/diagnostics';
 
 export function DoorstepPage() {
   const { state, signInGoogle, sendMagicLink, requestAccess, signOut } = useAuth();
@@ -20,7 +22,8 @@ export function DoorstepPage() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong — please try again.');
+      setError(friendlyError(e, 'Something went wrong — please try again.'));
+      reportClientError('auth', e);
     } finally {
       setBusy(false);
     }

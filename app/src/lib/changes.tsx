@@ -20,7 +20,7 @@ import {
 } from 'firebase/firestore';
 import { getBytes, getMetadata, ref } from 'firebase/storage';
 import { db, storage } from './firebase-data';
-import { prune, savePerson, saveUnion } from './edits';
+import { personDocument, prune, savePerson, saveUnion } from './edits';
 import {
   MAX_PHOTO_BYTES,
   checkPhotoFile,
@@ -29,6 +29,7 @@ import {
   uploadImage,
 } from './upload';
 import { useAuth } from './auth';
+import { UserError } from './errors';
 import type { Person, PersonId, PhotoRef, Union, UnionId } from '../types/family';
 
 /**
@@ -70,6 +71,65 @@ export function targetIdOf(change: Change): string {
       return change.personId;
     case 'union.delete':
       return change.unionId;
+  }
+}
+
+/**
+ * Firestore rejects `undefined` outright, so a suggested change has to be
+ * pruned exactly the way an admin's canonical write already is (see
+ * `edits.ts`). An admin's save reaches Firestore through `savePerson` /
+ * `saveUnion`, which prune; a member's save is stored verbatim as a
+ * `suggestions` document, and for a long time was the one write in the
+ * app that skipped the step — a living person carries `death: undefined`,
+ * and that alone failed the whole save.
+ *
+ * People go through `personDocument`, not bare `prune`: an undated
+ * `death` is an empty object, and its mere presence is what marks someone
+ * as passed. `prune` would drop it and quietly revive them.
+ *
+ * Each case is rebuilt field by field rather than spread from `change`,
+ * because a spread copies `base: undefined` straight back in.
+ */
+export function pruneChange(change: Change): Change {
+  const asPerson = (p: Person) => personDocument(p) as unknown as Person;
+  const asUnion = (u: Union) => prune(u);
+  switch (change.kind) {
+    case 'person.save':
+      return {
+        kind: 'person.save',
+        person: asPerson(change.person),
+        ...(change.base ? { base: asPerson(change.base) } : {}),
+      };
+    case 'union.save':
+      return {
+        kind: 'union.save',
+        union: asUnion(change.union),
+        ...(change.base ? { base: asUnion(change.base) } : {}),
+      };
+    case 'union.addChild':
+      return {
+        kind: 'union.addChild',
+        unionId: change.unionId,
+        person: asPerson(change.person),
+      };
+    case 'family.start':
+      return {
+        kind: 'family.start',
+        spouse: asPerson(change.spouse),
+        union: asUnion(change.union),
+      };
+    case 'family.link':
+      return {
+        kind: 'family.link',
+        spouseId: change.spouseId,
+        union: asUnion(change.union),
+      };
+    case 'person.delete':
+      return { kind: 'person.delete', personId: change.personId, name: change.name };
+    case 'union.delete':
+      return { kind: 'union.delete', unionId: change.unionId, label: change.label };
+    case 'identity.claim':
+      return { kind: 'identity.claim', personId: change.personId, name: change.name };
   }
 }
 
@@ -239,7 +299,7 @@ export async function applyChange(change: Change, by: Editor): Promise<void> {
     }
     case 'identity.claim': {
       // Links the requesting account to a person record.
-      throw new Error('Identity claims are approved from the Admin page');
+      throw new UserError('Identity claims are approved from the Admin page');
     }
   }
 }
@@ -261,7 +321,7 @@ export function useChangeSubmit() {
     async (change: Change, targetLabel: string): Promise<SubmitOutcome> => {
       await addDoc(collection(db, 'suggestions'), {
         v: 2,
-        change,
+        change: pruneChange(change),
         targetId: targetIdOf(change),
         targetLabel,
         authorUid: uid,

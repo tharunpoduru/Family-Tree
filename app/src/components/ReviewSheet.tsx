@@ -8,6 +8,8 @@ import { useReadyData } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { applyChange, type Change } from '../lib/changes';
 import { setSuggestionStatus } from '../lib/suggestions';
+import { friendlyError } from '../lib/errors';
+import { reportClientError } from '../lib/diagnostics';
 import type { PendingRow } from '../lib/pending';
 import type { FamilyData } from '../types/family';
 import { personFieldChanges, unionFieldChanges } from '../lib/diff';
@@ -109,7 +111,8 @@ export function ReviewSheet({
         await setSuggestionStatus(row.id, 'applied');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not apply');
+      setError(friendlyError(e, 'Could not apply that change — try again.'));
+      reportClientError('apply', e, { suggestionId: row.id });
     } finally {
       setBusyId(null);
     }

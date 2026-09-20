@@ -14,6 +14,8 @@ import {
 import { collection, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase-data';
 import type { FamilyData, Person, Union } from '../types/family';
+import { UserError, friendlyError } from './errors';
+import { reportClientError } from './diagnostics';
 
 type DataState =
   | { phase: 'loading' }
@@ -46,18 +48,20 @@ export function FamilyDataProvider({ children }: { children: ReactNode }) {
         });
       }
     };
-    const fail = (e: unknown) =>
+    const fail = (e: unknown) => {
+      reportClientError('load', e);
       setState({
         phase: 'error',
-        message: e instanceof Error ? e.message : 'Could not load the family',
+        message: friendlyError(e, 'Could not load the family records.'),
       });
+    };
 
     getDoc(doc(db, 'meta', 'family'))
       .then((snap) => {
         const d = snap.data();
         if (!d)
-          throw new Error(
-            'no family data yet — an admin needs to run `npm run seed` (see the README)',
+          throw new UserError(
+            'No family data yet — an admin needs to run `npm run seed` (see the README).',
           );
         meta = d as typeof meta;
         publish();

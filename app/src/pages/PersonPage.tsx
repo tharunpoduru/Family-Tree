@@ -21,6 +21,8 @@ import { SuggestSheet } from '../components/SuggestSheet';
 import { PendingBadge, ReviewSheet } from '../components/ReviewSheet';
 import type { Person } from '../types/family';
 import type { Suggestion } from '../lib/suggestions';
+import { friendlyError } from '../lib/errors';
+import { reportClientError } from '../lib/diagnostics';
 
 export function PersonPage() {
   const data = useReadyData();
@@ -33,7 +35,8 @@ export function PersonPage() {
   const [startFamily, setStartFamily] = useState<Person | null>(null);
   const [suggestTarget, setSuggestTarget] = useState<Suggestion['target'] | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [claimState, setClaimState] = useState<'idle' | 'sent'>('idle');
+  const [claimState, setClaimState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [claimError, setClaimError] = useState<string | null>(null);
 
   const pending = usePendingFor(personId);
   const suggestedFields = usePersonSuggestedFields(person);
@@ -57,15 +60,25 @@ export function PersonPage() {
       ? (state.membership as { personId?: string }).personId
       : undefined;
   const isMe = linkedPersonId === person.id;
-  const canClaim = !linkedPersonId && claimState === 'idle';
+  const canClaim = !linkedPersonId && claimState !== 'sent';
 
   async function claim() {
     if (!person) return;
-    await suggest(
-      { kind: 'identity.claim', personId: person.id, name: person.name.en },
-      person.name.en,
-    );
-    setClaimState('sent');
+    setClaimState('sending');
+    setClaimError(null);
+    try {
+      await suggest(
+        { kind: 'identity.claim', personId: person.id, name: person.name.en },
+        person.name.en,
+      );
+      setClaimState('sent');
+    } catch (e) {
+      // Without this the rejection was unhandled: the button simply went
+      // dead and the member was never told anything had gone wrong.
+      setClaimState('idle');
+      setClaimError(friendlyError(e, 'Could not send that — please try again.'));
+      reportClientError('suggest', e, { claimFor: person.id });
+    }
   }
 
   return (
@@ -185,10 +198,18 @@ export function PersonPage() {
           <button
             type="button"
             onClick={claim}
-            className="text-sm font-medium text-ink-faint underline-offset-4 hover:underline"
+            disabled={claimState === 'sending'}
+            className="text-sm font-medium text-ink-faint underline-offset-4 hover:underline disabled:opacity-60"
           >
-            Is this you? Tell the admins &mdash; &ldquo;This is me&rdquo;
+            {claimState === 'sending'
+              ? 'Sending…'
+              : 'Is this you? Tell the admins — “This is me”'}
           </button>
+          {claimError && (
+            <p role="alert" className="m-0 mt-2 text-sm text-nili">
+              {claimError}
+            </p>
+          )}
         </div>
       )}
       {claimState === 'sent' && (

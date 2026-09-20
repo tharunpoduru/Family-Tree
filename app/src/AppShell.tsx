@@ -34,7 +34,7 @@ function DataGate({ isAdmin }: { isAdmin: boolean }) {
   const data = useFamilyData();
   if (data.phase === 'loading') return <CenteredNote text="Gathering the family…" />;
   if (data.phase === 'error')
-    return <CenteredNote text={`Something went wrong: ${data.message}`} />;
+    return <CenteredNote text={data.message} />;
 
   return (
     <Routes>

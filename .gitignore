@@ -4,3 +4,4 @@ functions/node_modules/
 # Firebase web config lives outside git — copy app/.env.example to app/.env.
 app/.env
 .claude/scheduled_tasks.lock
+*-debug.log

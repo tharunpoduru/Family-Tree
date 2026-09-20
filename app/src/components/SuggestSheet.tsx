@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from '../lib/auth';
 import { submitSuggestion, type Suggestion } from '../lib/suggestions';
+import { friendlyError } from '../lib/errors';
+import { reportClientError } from '../lib/diagnostics';
 
 export function SuggestSheet({
   target,
@@ -39,7 +41,8 @@ export function SuggestSheet({
       setNote('');
       setPhoto(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send — try again.');
+      setError(friendlyError(e, 'Could not send — try again.'));
+      reportClientError('suggest', e);
     } finally {
       setBusy(false);
     }
